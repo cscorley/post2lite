@@ -41,11 +41,11 @@ def main(argv):
                     c = g.execute("SELECT name,sql FROM sqlite_master WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' UNION ALL SELECT name,sql FROM sqlite_temp_master WHERE type IN ('table','view') ORDER BY 1")
                     tables = dict(c.fetchall())
 
-                    tokens = tokenize(buf, '(),;')
+                    tokens = tokenize(buf)
                     name, fields = get_info(tokens)
 
                     schema = tables[name]
-                    tokens = tokenize(schema, '(),;')
+                    tokens = tokenize(schema)
                     name, types = parse_schema(tokens)
 
                     count = insert_copies(f, g, name, types, len(fields), count)
@@ -60,7 +60,7 @@ def main(argv):
     return 0
 
 def parse_schema(t):
-    found = 0
+    parens = 0
     create_table = False
     table = None
 
@@ -75,33 +75,50 @@ def parse_schema(t):
             table = token
 
         if token == '(':
-            found = found + 1
-        elif token == ')':
-            found = found - 1
-        elif token != ',' and found > 0:
-            tmp.append(token)
-        elif token == ',' and found > 0:
-            n = tmp[0]
-            ts = ' '.join(tmp[1:]).upper()
-            # according to sqlite datatypes 2.1
-            # https://www.sqlite.org/datatype3.html
-            if 'INT' in ts:
-                ty = int
-            elif any([x in ts for x in ['CHAR', 'CLOB', 'TEXT']]):
-                ty = str
-            elif any([x in ts for x in ['REAL', 'FLOA', 'DOUB']]):
-                ty = float
-            # parse the date anyway
-            elif ts == 'DATE' or ts == 'DATETIME':
-                ty = date_parse
-            else:
-                ty = str # default to str in python instead of numeric,
-                        # no real reason for this other than just cause
+            if parens == 1:
+                tmp.append(token)
 
-            fields.append((n, ty))
+            parens = parens + 1
+
+        elif token == ')':
+            if parens > 1:
+                tmp.append(token)
+            elif parens == 1:
+                fields.append(get_type(tmp))
+                tmp = list()
+
+            parens = parens - 1
+
+        elif token != ',' and parens > 0:
+            tmp.append(token)
+
+        elif token == ',' and parens > 0:
+            fields.append(get_type(tmp))
             tmp = list()
 
+
     return table, fields
+
+def get_type(tokens):
+    n = tokens[0]
+    ts = ' '.join(tokens[1:]).upper()
+    # according to sqlite datatypes 2.1
+    # https://www.sqlite.org/datatype3.html
+    if 'INT' in ts:
+        ty = int
+    elif any([x in ts for x in ['CHAR', 'CLOB', 'TEXT']]):
+        ty = str
+    elif any([x in ts for x in ['REAL', 'FLOA', 'DOUB']]):
+        ty = float
+    # parse the date anyway
+    elif ts == 'DATE' or ts == 'DATETIME':
+        ty = date_parse
+    else:
+        ty = str # default to str in python instead of numeric,
+                # no real reason for this other than just cause
+
+    return ty
+
 
 def get_info(t):
     found = False
@@ -128,7 +145,7 @@ def isa(l, s, e=False):
 
     return l.lstrip().upper().startswith(s)
 
-def tokenize(s, sep):
+def tokenize(s, sep='(),;'):
     tokens = list()
     build = str()
     for char in s:
@@ -164,7 +181,7 @@ def insert_copies(f, g, table_name, table_schema, expecting, count):
 
         for i in range(len(fields)):
             field = fields[i]
-            t = table_schema[i][1]
+            t = table_schema[i]
             if field == "\\N":
                 fields[i] = None
             elif t is not None:
@@ -183,8 +200,6 @@ def insert_copies(f, g, table_name, table_schema, expecting, count):
             g.commit()
 
     return count
-
-
 
 if __name__ == '__main__':
     sys.exit(main(sys.argv))
