@@ -165,10 +165,13 @@ def tokenize(s, sep='(),;'):
 def insert_copies(f, g, table_name, table_schema, expecting, count):
     for line in f:
         count += 1
-        if len(line.rstrip()) == 0:
+        line = line.rstrip()
+        if len(line) == 0:
+            return count
+        elif line == "\.":
             return count
 
-        fields = line.rstrip().split('\t')
+        fields = line.split('\t')
         if len(fields) != expecting:
             print(str(count)+": Number of fields ("+str(len(fields))+
                     ") do not match expected ("+str(expecting)+")")
